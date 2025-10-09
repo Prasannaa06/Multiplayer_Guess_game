@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Number Guess Game</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="container">
+<h1>GudduOP Game</h1>
+
+
+<div id="loginScreen" class="card">
+<label>Your name</label>
+<input id="nameInput" placeholder="Enter name" />
+<button id="loginBtn">Create / Join</button>
+</div>
+
+
+<div id="lobby" class="card hidden">
+<h2>Lobby</h2>
+<div id="playersList"></div>
+<div class="controls">
+<button id="readyBtn">OK (Ready)</button>
+</div>
+<div id="roundInfo"></div>
+</div>
+
+
+<div id="gameArea" class="card hidden">
+<h2>Round <span id="roundNumber">0</span></h2>
+<div id="submissionStatus"></div>
+<label>Enter number (1-100)</label>
+<input id="numberInput" type="number" min="1" max="100" />
+<button id="submitBtn">Submit</button>
+
+
+<div id="resultArea"></div>
+</div>
+
+
+<div id="scoreboard" class="card hidden">
+<h3>Scoreboard</h3>
+<div id="scores"></div>
+</div>
+<div id="gameOver" class="card hidden">
+<h2 id="winnerText"></h2>
+<button id="restartBtn">Restart (Reset Scores)</button>
+</div>
+
+
+</div>
+
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/game.js"></script>
+</body>
+</html>
