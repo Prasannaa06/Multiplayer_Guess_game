@@ -2,238 +2,288 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 
-
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-
 app.use(express.static('public'));
-
 
 const PORT = process.env.PORT || 3000;
 
+// ===================
+// Lobbies state
+// ===================
+let lobbies = {}; // code -> { players, roundsPlayed, currentSubmissions, eliminationInterval, chat, roundInProgress }
 
-// Game state
-let players = {}; // socketId -> {name, score, eliminated, ready, lastGuess}
-let roundsPlayed = 0;
-let currentSubmissions = {}; // socketId -> number
-let roundInProgress = false;
-let eliminationInterval = 3; // default, will be updated dynamically
+// ===================
+// Helper functions
+// ===================
 
-
-function resetRoundSubmissions() {
-currentSubmissions = {};
-for (const s in players) players[s].lastGuess = null;
+// Generate unique 6-digit lobby code
+function generateLobbyCode() {
+    let code;
+    do {
+        code = Math.floor(100000 + Math.random() * 900000).toString();
+    } while (lobbies[code]);
+    return code;
 }
 
-
-function broadcastLobby() {
-const list = Object.keys(players).map(id => ({
-id,
-name: players[id].name,
-score: players[id].score,
-eliminated: players[id].eliminated,
-ready: players[id].ready
-}));
-io.emit('lobbyUpdate', { players: list, roundsPlayed });
+// Get lobby by socket ID
+function getLobbyBySocketId(socketId) {
+    for (const code in lobbies) {
+        if (lobbies[code].players[socketId]) return lobbies[code];
+    }
+    return null;
 }
 
-
-function computeAndScoreRound() {
-const ids = Object.keys(currentSubmissions);
-if (ids.length === 0) return null;
-
-
-const numbers = ids.map(id => currentSubmissions[id]);
-const sum = numbers.reduce((a,b)=>a+b,0);
-const avg = sum / numbers.length;
-const target = +(0.8 * avg).toFixed(2);
-// Check exact matches (must equal the target when rounded to 2 decimal places)
-const exactGuessers = ids.filter(id => Number(currentSubmissions[id]) === Number(target));
-
-
-let roundResult = {
-target,
-avg: +avg.toFixed(2),
-exactGuessers: [],
-closestId: null,
-closestDiff: null
-};
-
-
-if (exactGuessers.length > 0) {
-exactGuessers.forEach(id => {
-players[id].score += 100;
-roundResult.exactGuessers.push({ id, name: players[id].name });
-});
-} else {
-// find nearest
-let closestId = ids[0];
-let closestDiff = Math.abs(Number(currentSubmissions[closestId]) - target);
-for (let i = 1; i < ids.length; i++) {
-const id = ids[i];
-const diff = Math.abs(Number(currentSubmissions[id]) - target);
-if (diff < closestDiff) {
-closestDiff = diff;
-closestId = id;
-}
-}
-players[closestId].score += 50;
-roundResult.closestId = closestId;
-roundResult.closestName = players[closestId].name;
-roundResult.closestDiff = closestDiff;
+// Get lobby code by socket ID
+function getLobbyCodeBySocket(socketId) {
+    for (const code in lobbies) {
+        if (lobbies[code].players[socketId]) return code;
+    }
+    return null;
 }
 
-
-roundsPlayed += 1;
-return roundResult;
-}
-function eliminatePlayers() {
-const activePlayers = Object.entries(players)
-.filter(([id, p]) => !p.eliminated)
-.map(([id, p]) => ({ id, name: p.name, score: p.score }));
-
-
-if (activePlayers.length <= 1) return []; // nothing to eliminate
-
-
-// sort ascending by score
-activePlayers.sort((a,b)=>a.score-b.score);
-
-
-// number to eliminate: floor(25% of active), at least 1 (unless would eliminate all)
-let toEliminate = Math.floor(activePlayers.length * 0.25);
-if (toEliminate < 1) toEliminate = 1;
-if (activePlayers.length - toEliminate < 1) toEliminate = activePlayers.length - 1;
-
-
-const eliminated = activePlayers.slice(0, toEliminate);
-eliminated.forEach(p => { players[p.id].eliminated = true; });
-
-
-return eliminated;
+// Broadcast lobby update
+function broadcastLobby(code) {
+    const lobby = lobbies[code];
+    if (!lobby) return;
+    const list = Object.values(lobby.players).map(p => ({
+        name: p.name,
+        score: p.score,
+        eliminated: p.eliminated,
+        ready: p.ready
+    }));
+    io.to(code).emit('lobbyUpdate', { players: list, roundsPlayed: lobby.roundsPlayed });
 }
 
-function updateEliminationInterval() {
-    const totalPlayers = Object.keys(players).length;
-    eliminationInterval = Math.max(3, Math.floor(totalPlayers / 2));
+// Compute round result
+function computeAndScoreRoundLobby(lobby) {
+    const ids = Object.keys(lobby.currentSubmissions);
+    if (ids.length === 0) return null;
+
+    const numbers = ids.map(id => lobby.currentSubmissions[id]);
+    const sum = numbers.reduce((a, b) => a + b, 0);
+    const avg = sum / numbers.length;
+    const target = +(0.8 * avg).toFixed(2);
+
+    let roundResult = { target, avg: +avg.toFixed(2), exactGuessers: [], closestId: null, closestName: null };
+
+    // Exact guessers
+    const exact = ids.filter(id => Number(lobby.currentSubmissions[id]) === Number(target));
+    if (exact.length > 0) {
+        exact.forEach(id => {
+            lobby.players[id].score += 100;
+            roundResult.exactGuessers.push({ id, name: lobby.players[id].name });
+        });
+    } else {
+        // Find closest
+        let closestId = ids[0];
+        let closestDiff = Math.abs(lobby.currentSubmissions[closestId] - target);
+        for (let i = 1; i < ids.length; i++) {
+            const id = ids[i];
+            const diff = Math.abs(lobby.currentSubmissions[id] - target);
+            if (diff < closestDiff) {
+                closestDiff = diff;
+                closestId = id;
+            }
+        }
+        lobby.players[closestId].score += 50;
+        roundResult.closestId = closestId;
+        roundResult.closestName = lobby.players[closestId].name;
+    }
+
+    lobby.roundsPlayed += 1;
+    return roundResult;
 }
 
+// Eliminate lowest scoring players
+function eliminatePlayersLobby(lobby) {
+    const activePlayers = Object.entries(lobby.players)
+        .filter(([id, p]) => !p.eliminated)
+        .map(([id, p]) => ({ id, name: p.name, score: p.score }));
 
+    if (activePlayers.length <= 1) return [];
+
+    // Sort ascending by score
+    activePlayers.sort((a, b) => a.score - b.score);
+
+    let toEliminate = Math.floor(activePlayers.length * 0.25);
+    if (toEliminate < 1) toEliminate = 1;
+    if (activePlayers.length - toEliminate < 1) toEliminate = activePlayers.length - 1;
+
+    const eliminated = activePlayers.slice(0, toEliminate);
+    eliminated.forEach(p => lobby.players[p.id].eliminated = true);
+
+    return eliminated;
+}
+
+// Update elimination interval dynamically
+function updateEliminationInterval(lobby) {
+    const totalPlayers = Object.keys(lobby.players).length;
+    lobby.eliminationInterval = Math.max(3, Math.floor(totalPlayers / 2));
+}
+
+// Reset round submissions
+function resetRoundSubmissions(lobby) {
+    lobby.currentSubmissions = {};
+    for (const id in lobby.players) lobby.players[id].lastGuess = null;
+}
+
+// ===================
+// Socket.io events
+// ===================
 io.on('connection', socket => {
-console.log('socket connected', socket.id);
+    console.log('Connected:', socket.id);
 
+    socket.on('createLobby', ({ name }, cb) => {
+        const code = generateLobbyCode();
+        lobbies[code] = {
+            players: {},
+            roundsPlayed: 0,
+            currentSubmissions: {},
+            eliminationInterval: 3,
+            chat: [],
+            roundInProgress: false
+        };
+        lobbies[code].players[socket.id] = {
+            name: name || `Guest-${socket.id.slice(0, 4)}`,
+            score: 0,
+            eliminated: false,
+            ready: false,
+            lastGuess: null
+        };
+        socket.join(code);
+        updateEliminationInterval(lobbies[code]);
+        broadcastLobby(code);
+        cb({ code });
+    });
 
-// Add placeholder
-players[socket.id] = {
-name: `Guest-${socket.id.slice(0,4)}`,
-score: 0,
-eliminated: false,
-ready: false,
-lastGuess: null
-};
+    socket.on('joinLobby', ({ code, name }, cb) => {
+        const lobby = lobbies[code];
+        if (!lobby) return cb({ error: 'Lobby not found' });
 
+        lobby.players[socket.id] = {
+            name: name || `Guest-${socket.id.slice(0, 4)}`,
+            score: 0,
+            eliminated: false,
+            ready: false,
+            lastGuess: null
+        };
+        socket.join(code);
+        updateEliminationInterval(lobby);
+        broadcastLobby(code);
+        cb({ success: true });
+    });
 
-updateEliminationInterval(); // Update interval when a new player joins
+    socket.on('login', ({ name }) => {
+        const lobby = getLobbyBySocketId(socket.id);
+        if (!lobby) return;
+        const player = lobby.players[socket.id];
+        player.name = name || player.name;
+        broadcastLobby(getLobbyCodeBySocket(socket.id));
+    });
 
+    socket.on('setReady', ({ ready }) => {
+        const lobby = getLobbyBySocketId(socket.id);
+        if (!lobby) return;
+        const player = lobby.players[socket.id];
+        player.ready = ready;
+        broadcastLobby(getLobbyCodeBySocket(socket.id));
 
-// Send lobby
-broadcastLobby();
-socket.on('login', ({ name }) => {
-if (!players[socket.id]) return;
-players[socket.id].name = name || players[socket.id].name;
-players[socket.id].score = 0;
-players[socket.id].eliminated = false;
-players[socket.id].ready = false;
-broadcastLobby();
-updateEliminationInterval(); // Update interval on login
+        // If all active players ready, start round
+        const activePlayers = Object.values(lobby.players).filter(p => !p.eliminated);
+        if (activePlayers.length >= 1 && activePlayers.every(p => p.ready)) {
+            lobby.roundInProgress = true;
+            resetRoundSubmissions(lobby);
+            io.to(getLobbyCodeBySocket(socket.id)).emit('roundStart');
+        }
+    });
+
+    socket.on('submitNumber', ({ number }) => {
+        const lobby = getLobbyBySocketId(socket.id);
+        if (!lobby) return;
+        const player = lobby.players[socket.id];
+        if (player.eliminated) return;
+
+        player.lastGuess = Number(number);
+        lobby.currentSubmissions[socket.id] = player.lastGuess;
+
+        const activeIds = Object.keys(lobby.players).filter(id => !lobby.players[id].eliminated);
+        const allSubmitted = activeIds.every(id => lobby.currentSubmissions.hasOwnProperty(id));
+
+        if (allSubmitted) {
+            const result = computeAndScoreRoundLobby(lobby);
+
+            // Reset ready flags
+            for (const id in lobby.players) lobby.players[id].ready = false;
+            lobby.roundInProgress = false;
+
+            // Eliminate players dynamically
+            const eliminatedThisRound = (lobby.roundsPlayed % lobby.eliminationInterval === 0)
+                ? eliminatePlayersLobby(lobby)
+                : [];
+
+            io.to(getLobbyCodeBySocket(socket.id)).emit('roundResult', {
+                result,
+                players: Object.keys(lobby.players).map(id => ({
+                    id,
+                    name: lobby.players[id].name,
+                    score: lobby.players[id].score,
+                    eliminated: lobby.players[id].eliminated
+                })),
+                roundsPlayed: lobby.roundsPlayed,
+                eliminated: eliminatedThisRound
+            });
+
+            // Check for game over
+            const remaining = Object.values(lobby.players).filter(p => !p.eliminated);
+            if (remaining.length === 1) {
+                io.to(getLobbyCodeBySocket(socket.id)).emit('gameOver', {
+                    winner: { name: remaining[0].name, score: remaining[0].score }
+                });
+
+                // Reset lobby for new game
+                for (const id in lobby.players) {
+                    lobby.players[id].score = 0;
+                    lobby.players[id].eliminated = false;
+                    lobby.players[id].ready = false;
+                }
+                lobby.roundsPlayed = 0;
+                resetRoundSubmissions(lobby);
+            }
+        } else {
+            io.to(getLobbyCodeBySocket(socket.id)).emit('submissionUpdate', {
+                submitted: Object.keys(lobby.currentSubmissions).length,
+                total: Object.keys(lobby.players).filter(id => !lobby.players[id].eliminated).length
+            });
+        }
+    });
+
+    // Player sends a message
+socket.on('sendChat', ({ code, message }) => {
+    const lobby = lobbies[code];
+    if (!lobby) return;
+
+    const player = lobby.players[socket.id];
+    if (!player) return;
+
+    // Add message to lobby chat history
+    const chatMsg = { name: player.name, message, time: Date.now() };
+    lobby.chat.push(chatMsg);
+
+    // Broadcast chat update to all players in the lobby
+    io.to(code).emit('chatUpdate', lobby.chat);
 });
 
 
-socket.on('setReady', ({ ready }) => {
-if (!players[socket.id]) return;
-players[socket.id].ready = ready;
-broadcastLobby();
-
-
-// If all active players are ready and at least 2 players present, start round
-const active = Object.values(players).filter(p=>!p.eliminated);
-if (active.length >= 1 && active.every(p=>p.ready)) {
-// start the round
-roundInProgress = true;
-resetRoundSubmissions();
-io.emit('roundStart');
-}
+    socket.on('disconnect', () => {
+        const code = getLobbyCodeBySocket(socket.id);
+        if (code && lobbies[code]) {
+            delete lobbies[code].players[socket.id];
+            broadcastLobby(code);
+        }
+    });
 });
 
-
-socket.on('submitNumber', ({ number }) => {
-if (!players[socket.id] || players[socket.id].eliminated) return;
-const n = Number(number);
-if (!Number.isFinite(n) || n < 1 || n > 100) {
-socket.emit('errorMsg', { msg: 'Invalid number. Must be between 1 and 100.' });
-return;
-}
-
-
-currentSubmissions[socket.id] = n;
-players[socket.id].lastGuess = n;
-
-
-// If all active players submitted, compute result
-const activeIds = Object.keys(players).filter(id=>!players[id].eliminated);
-const allSubmitted = activeIds.every(id => currentSubmissions.hasOwnProperty(id));
-if (allSubmitted) {
-const result = computeAndScoreRound();
-// Reset ready flags so players must ready again
-for (const id of Object.keys(players)) players[id].ready = false;
-roundInProgress = false;
-
-
-// Eliminate players at the dynamic interval
-const eliminatedThisRound = (roundsPlayed % eliminationInterval === 0)
-? eliminatePlayers()
-: [];
-
-
-// Broadcast round result + lobby
-io.emit('roundResult', { result, players: Object.keys(players).map(id=>({
-id, name: players[id].name, score: players[id].score, eliminated: players[id].eliminated
-})), roundsPlayed, eliminated: eliminatedThisRound });
-
-
-// If only one player remains, game over
-const remaining = Object.entries(players).filter(([id,p])=>!p.eliminated);
-if (remaining.length === 1) {
-io.emit('gameOver', { winner: { id: remaining[0][0], name: remaining[0][1].name, score: remaining[0][1].score } });
-// reset game state for a new game (players keep names but scores reset)
-for (const id in players) {
-players[id].score = 0;
-players[id].eliminated = false;
-players[id].ready = false;
-}
-roundsPlayed = 0;
-resetRoundSubmissions();
-}
-
-
-} else {
-// inform clients how many submitted so far
-io.emit('submissionUpdate', { submitted: Object.keys(currentSubmissions).length, total: Object.keys(players).filter(id=>!players[id].eliminated).length });
-}
-});
-
-
-socket.on('disconnect', () => {
-console.log('disconnect', socket.id);
-delete players[socket.id];
-broadcastLobby();
-updateEliminationInterval(); // Update interval when a player leaves
-});
-
-
-});
-
-
-server.listen(PORT, ()=>console.log('Server listening on', PORT));
+server.listen(PORT, () => console.log('Server listening on', PORT));

@@ -8,50 +8,70 @@
 </head>
 <body>
 <div class="container">
-<h1>GudduOP Game</h1>
 
+  <h1>GudduOP Game</h1>
 
-<div id="loginScreen" class="card">
-<label>Your name</label>
-<input id="nameInput" placeholder="Enter name" />
-<button id="loginBtn">Create / Join</button>
+  <!-- START PAGE: Create/Join Lobby -->
+  <div id="startPage" class="card">
+    <h2>Welcome!</h2>
+    <div id="lobbyControls">
+      <input id="nameInput" placeholder="Enter your name" />
+      <button id="createLobbyBtn">Create Lobby</button>
+      <input id="lobbyCodeInput" placeholder="Enter 6-digit code">
+      <button id="joinLobbyBtn">Join Lobby</button>
+    </div>
+
+    <div id="instructions">
+      <h3>How to Play</h3>
+      <ul>
+        <li>Create or join a lobby with a 6-digit code.</li>
+        <li>Submit a number between 1 and 100 each round.</li>
+        <li>Target = 80% of the average submissions.</li>
+        <li>Exact guess = 100 points, closest = 50 points.</li>
+        <li>Lowest scores eliminated at intervals; last player wins!</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- LOBBY -->
+  <div id="lobby" class="card hidden">
+    <h2>Lobby — Code: <span id="lobbyCode"></span></h2>
+    <div id="playersList"></div>
+    <button id="readyBtn">OK (Ready)</button>
+  </div>
+
+  <!-- GAME AREA -->
+  <div id="gameArea" class="card hidden">
+    <h2>Round <span id="roundNumber">0</span></h2>
+    <div id="submissionStatus"></div>
+    <label>Enter number (1-100)</label>
+    <input id="numberInput" type="number" min="1" max="100" />
+    <button id="submitBtn">Submit</button>
+
+    <div id="resultArea"></div>
+  </div>
+
+  <!-- SCOREBOARD -->
+  <div id="scoreboard" class="card hidden">
+    <h3>Scoreboard</h3>
+    <div id="scores"></div>
+  </div>
+
+  <!-- CHAT -->
+  <div id="chatBox" class="card hidden">
+    <h3>Chat</h3>
+    <div id="chatMessages"></div>
+    <input id="chatInput" placeholder="Type a message..." />
+    <button id="sendChatBtn">Send</button>
+  </div>
+
+  <!-- GAME OVER -->
+  <div id="gameOver" class="card hidden">
+    <h2 id="winnerText"></h2>
+    <button id="restartBtn">Restart</button>
+  </div>
+
 </div>
-
-
-<div id="lobby" class="card hidden">
-<h2>Lobby</h2>
-<div id="playersList"></div>
-<div class="controls">
-<button id="readyBtn">OK (Ready)</button>
-</div>
-<div id="roundInfo"></div>
-</div>
-
-
-<div id="gameArea" class="card hidden">
-<h2>Round <span id="roundNumber">0</span></h2>
-<div id="submissionStatus"></div>
-<label>Enter number (1-100)</label>
-<input id="numberInput" type="number" min="1" max="100" />
-<button id="submitBtn">Submit</button>
-
-
-<div id="resultArea"></div>
-</div>
-
-
-<div id="scoreboard" class="card hidden">
-<h3>Scoreboard</h3>
-<div id="scores"></div>
-</div>
-<div id="gameOver" class="card hidden">
-<h2 id="winnerText"></h2>
-<button id="restartBtn">Restart (Reset Scores)</button>
-</div>
-
-
-</div>
-
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="/game.js"></script>

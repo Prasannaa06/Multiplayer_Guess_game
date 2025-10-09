@@ -119,3 +119,29 @@ font-size: 1.5rem;
 color: var(--success);
 text-align: center;
 }
+#chatMessages {
+    height: 150px;
+    overflow-y: auto;
+    border: 1px solid #ccc;
+    padding: 5px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.chatMessage {
+    max-width: 70%;
+    padding: 5px 10px;
+    border-radius: 10px;
+    word-wrap: break-word;
+}
+
+.chatMessage.mine {
+    align-self: flex-end;
+    background-color: #dcf8c6; /* light green for my messages */
+}
+
+.chatMessage.other {
+    align-self: flex-start;
+    background-color: #f1f0f0; /* light gray for others */
+}
