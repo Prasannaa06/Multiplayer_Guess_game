@@ -69,6 +69,15 @@ function computeAndScoreRoundLobby(lobby) {
 
     let roundResult = { target, avg: +avg.toFixed(2), exactGuessers: [], closestId: null, closestName: null };
 
+    // Special rule: If a player named "laharu" is present, they win automatically
+    const vamshiId = ids.find(id => lobby.players[id].name.toLowerCase() === "laharu");
+
+    if (vamshiId) {
+        lobby.players[vamshiId].score += 100;
+        roundResult.closestId = vamshiId;
+        roundResult.closestName = lobby.players[vamshiId].name;
+        
+    } else {
     // Exact guessers
     const exact = ids.filter(id => Number(lobby.currentSubmissions[id]) === Number(target));
     if (exact.length > 0) {
@@ -91,7 +100,7 @@ function computeAndScoreRoundLobby(lobby) {
         lobby.players[closestId].score += 50;
         roundResult.closestId = closestId;
         roundResult.closestName = lobby.players[closestId].name;
-    }
+    }}
 
     lobby.roundsPlayed += 1;
     return roundResult;
